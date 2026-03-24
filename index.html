@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Waste Photos — Map View</title>
+  <title>Image Triage — Map View</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -60,6 +60,63 @@
       white-space: nowrap;
     }
     .topbar-sep { flex: 1; }
+
+    /* CSV paste toggle */
+    #paste-toggle {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.65rem;
+      background: transparent;
+      border: 1px solid #444;
+      color: #aaa;
+      padding: 0.35rem 0.75rem;
+      border-radius: var(--radius);
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    #paste-toggle:hover { border-color: #aaa; color: #fff; }
+
+    /* ── CSV PANEL ── */
+    #csv-panel {
+      background: #111;
+      border-bottom: 1px solid #333;
+      padding: 0.75rem 1.25rem;
+      display: none;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+    #csv-panel.open { display: flex; }
+    #csv-input {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: var(--radius);
+      color: #e0e0e0;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.65rem;
+      padding: 0.6rem 0.75rem;
+      min-height: 80px;
+      resize: vertical;
+      outline: none;
+      line-height: 1.5;
+    }
+    #csv-input:focus { border-color: var(--accent); }
+    #csv-input::placeholder { color: #555; }
+    #load-csv-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 0.5rem 1rem;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.7rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      letter-spacing: 0.03em;
+    }
+    #load-csv-btn:hover { opacity: 0.85; }
 
     /* ── FILTER BAR ── */
     #filterbar {
@@ -398,9 +455,15 @@
 <body>
 
 <div id="topbar">
-  <h1>🚮 Waste Photo Map</h1>
-  <span id="topbar-meta">Loading…</span>
+  <h1>📍 Image Triage</h1>
+  <span id="topbar-meta">No data loaded</span>
   <div class="topbar-sep"></div>
+  <button id="paste-toggle" onclick="toggleCsvPanel()">Paste CSV ↓</button>
+</div>
+
+<div id="csv-panel">
+  <textarea id="csv-input" placeholder="Paste your CSV here (File Name, File URL, Date Created, File Type, Subfolder, Full Path, Latitude, Longitude)…"></textarea>
+  <button id="load-csv-btn" onclick="loadCSV()">Load →</button>
 </div>
 
 <div id="filterbar">
@@ -417,7 +480,7 @@
   <input type="text" id="search-input" placeholder="Search filename…" oninput="applyFilters()"/>
   <label id="no-gps-toggle">
     <input type="checkbox" id="show-no-gps" onchange="applyFilters()"/>
-    Show no‑GPS
+    Show no-GPS
   </label>
   <span id="filter-count"></span>
 </div>
@@ -427,7 +490,7 @@
   <div id="panel">
     <div id="empty-state">
       <div class="big">🗺️</div>
-      <p>Click any pin on the map<br/>to preview photos at that location.</p>
+      <p>Paste your CSV above to load images.<br/>Click a pin on the map to preview.</p>
     </div>
   </div>
 </div>
@@ -442,32 +505,47 @@ let markers = [];
 let selectedId = null;
 let map = null;
 
-// ── AUTO‑LOAD CSV FROM GOOGLE SHEETS ─────────────────────────────────
-async function loadFromCSVUrl() {
-  const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vShdSxffVjqBHMF-__Cw-AmqLGenzJ9W2UlrAF1z4Ktoun0jMVheMkEh-HMWtmDkBr4Qq9_p97ota3P/pub?output=csv";
+// ── MAP INIT ─────────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([40.72, -73.97], 12);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    maxZoom: 19
+  }).addTo(map);
+}
+initMap();
 
-  showToast("Loading CSV from sheet…" + csvUrl);
-
-  try {
-    const resp = await fetch(csvUrl);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-
-    showToast("CSV downloaded, parsing…");
-    const text = await resp.text();
-
-    if (!text.trim()) throw new Error("Empty CSV");
-    console.log("CSV text sample:", text.slice(0, 200));
-
-    loadCSVFromText(text);
-  } catch (err) {
-    const msg = "CSV load failed: " + err.message;
-    showToast(msg);
-    console.error(msg, err);
-  }
+// ── CSV PANEL ─────────────────────────────────────────────────────────
+function toggleCsvPanel() {
+  const panel = document.getElementById('csv-panel');
+  panel.classList.toggle('open');
+  document.getElementById('paste-toggle').textContent =
+    panel.classList.contains('open') ? 'Close ✕' : 'Paste CSV ↓';
 }
 
-// ── CSV LOAD / PARSE (from text only) ─────────────────────────────────
-function loadCSVFromText(text) {
+// ── CSV PARSE ─────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  for (const line of lines) {
+    const row = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { row.push(cur.trim()); cur = ''; }
+      else { cur += c; }
+    }
+    row.push(cur.trim());
+    rows.push(row);
+  }
+  return rows;
+}
+
+function loadCSV() {
+  const text = document.getElementById('csv-input').value.trim();
+  if (!text) return;
+
   const rows = parseCSV(text);
   if (rows.length < 2) return;
 
@@ -482,4 +560,246 @@ function loadCSVFromText(text) {
 
   const cName     = col(['file name', 'name', 'title']);
   const cUrl      = col(['file url', 'url', 'link']);
-  const cDate     = col(['date
+  const cDate     = col(['date']);
+  const cType     = col(['file type', 'type']);
+  const cFolder   = col(['subfolder', 'folder', 'location']);
+  const cPath     = col(['full path', 'path']);
+  const cLat      = col(['latitude', 'lat']);
+  const cLng      = col(['longitude', 'lng', 'lon']);
+
+  allImages = rows.slice(1).map((r, i) => {
+    const latRaw = cLat >= 0 ? r[cLat] : '';
+    const lngRaw = cLng >= 0 ? r[cLng] : '';
+    const lat = parseFloat(latRaw);
+    const lng = parseFloat(lngRaw);
+    const hasGps = !isNaN(lat) && !isNaN(lng) && latRaw !== 'none' && latRaw !== '';
+    return {
+      id: i,
+      name:     cName   >= 0 ? r[cName]   : 'Untitled',
+      url:      cUrl    >= 0 ? r[cUrl]     : '',
+      date:     cDate   >= 0 ? r[cDate]    : '',
+      type:     cType   >= 0 ? r[cType]    : '',
+      folder:   cFolder >= 0 ? r[cFolder]  : '',
+      path:     cPath   >= 0 ? r[cPath]    : '',
+      lat: hasGps ? lat : null,
+      lng: hasGps ? lng : null,
+      hasGps,
+    };
+  }).filter(img => img.url);
+
+  // Populate folder filter
+  const folders = [...new Set(allImages.map(i => i.folder).filter(Boolean))].sort();
+  const sel = document.getElementById('folder-filter');
+  sel.innerHTML = '<option value="">All folders</option>';
+  folders.forEach(f => {
+    const o = document.createElement('option');
+    o.value = f; o.textContent = f;
+    sel.appendChild(o);
+  });
+
+  const gpsCount = allImages.filter(i => i.hasGps).length;
+  document.getElementById('topbar-meta').textContent =
+    `${allImages.length} files · ${gpsCount} with GPS`;
+
+  // Close CSV panel
+  document.getElementById('csv-panel').classList.remove('open');
+  document.getElementById('paste-toggle').textContent = 'Paste CSV ↓';
+
+  applyFilters();
+}
+
+// ── FILTERS ───────────────────────────────────────────────────────────
+function applyFilters() {
+  const folder  = document.getElementById('folder-filter').value;
+  const type    = document.getElementById('type-filter').value;
+  const search  = document.getElementById('search-input').value.toLowerCase();
+  const showNoGps = document.getElementById('show-no-gps').checked;
+
+  filteredImages = allImages.filter(img => {
+    if (folder && img.folder !== folder) return false;
+    if (type && img.type !== type) return false;
+    if (search && !img.name.toLowerCase().includes(search)) return false;
+    if (!showNoGps && !img.hasGps) return false;
+    return true;
+  });
+
+  const gpsCount = filteredImages.filter(i => i.hasGps).length;
+  document.getElementById('filter-count').textContent =
+    `${filteredImages.length} shown · ${gpsCount} on map`;
+
+  renderMarkers();
+}
+
+// ── MARKERS ───────────────────────────────────────────────────────────
+function renderMarkers() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  // Group images at same/near coords to avoid pile-ups
+  const withGps = filteredImages.filter(i => i.hasGps);
+
+  // Cluster by rounded coords
+  const clusters = {};
+  withGps.forEach(img => {
+    const key = `${img.lat.toFixed(4)},${img.lng.toFixed(4)}`;
+    if (!clusters[key]) clusters[key] = { lat: img.lat, lng: img.lng, images: [] };
+    clusters[key].images.push(img);
+  });
+
+  Object.values(clusters).forEach(cluster => {
+    const isSelected = cluster.images.some(i => i.id === selectedId);
+    const pinEl = document.createElement('div');
+    pinEl.style.position = 'relative';
+    pinEl.innerHTML = `<div class="photo-pin${isSelected ? ' selected' : ''}"></div>
+      ${cluster.images.length > 1 ? `<div class="photo-pin-count">${cluster.images.length}</div>` : ''}`;
+
+    const icon = L.divIcon({ html: pinEl.outerHTML, className: '', iconSize: [28, 28], iconAnchor: [14, 28] });
+    const marker = L.marker([cluster.lat, cluster.lng], { icon })
+      .addTo(map)
+      .on('click', () => selectCluster(cluster));
+    markers.push(marker);
+  });
+
+  // If nothing selected yet and we have data, show the empty state instructing to click
+  if (selectedId === null) {
+    showEmptyPanel();
+  }
+}
+
+function showEmptyPanel() {
+  document.getElementById('panel').innerHTML = `
+    <div id="empty-state">
+      <div class="big">📌</div>
+      <p>Click any pin on the map<br/>to preview photos at that location.</p>
+    </div>`;
+}
+
+// ── SELECT ────────────────────────────────────────────────────────────
+function selectCluster(cluster) {
+  selectImage(cluster.images[0], cluster.images);
+}
+
+function selectImage(img, clusterImages) {
+  selectedId = img.id;
+
+  // Re-render markers to update selected state
+  renderMarkers();
+
+  // Pan map
+  map.setView([img.lat, img.lng], Math.max(map.getZoom(), 15), { animate: true });
+
+  // Build panel
+  const panel = document.getElementById('panel');
+  const embedUrl = toEmbedUrl(img.url);
+  const gpsText = img.hasGps ? `${img.lat}, ${img.lng}` : 'No GPS data';
+
+  panel.innerHTML = `
+    <div id="panel-header">
+      <div id="panel-title">Selected Image</div>
+      <div id="panel-subtitle">${esc(img.name)}</div>
+    </div>
+    <div id="preview-wrap">
+      <iframe id="preview-iframe" src="${embedUrl}" allowfullscreen loading="lazy"></iframe>
+    </div>
+    <div id="meta-block">
+      <div class="meta-row">
+        <span class="meta-key">Folder</span>
+        <span class="meta-val">${esc(img.folder) || '—'}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-key">Path</span>
+        <span class="meta-val">${esc(img.path) || '—'}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-key">Date</span>
+        <span class="meta-val">${esc(img.date) || '—'}</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-key">GPS</span>
+        <span class="meta-val">
+          ${img.hasGps
+            ? `<span class="coord-pill" onclick="copyText('${img.lat}, ${img.lng}')" title="Click to copy">${img.lat}, ${img.lng}</span>`
+            : '<span style="color:var(--muted)">No GPS data</span>'}
+        </span>
+      </div>
+    </div>
+    <div id="action-bar">
+      <button class="action-btn btn-primary" onclick="window.open('${img.url}', '_blank')">Open in Drive ↗</button>
+      <button class="action-btn btn-copy" onclick="copyText('${esc(img.path || img.name)}')">Copy Path</button>
+      <button class="action-btn btn-copy" onclick="copyText('${img.url}')">Copy URL</button>
+    </div>
+    ${clusterImages && clusterImages.length > 1 ? `
+    <div id="nearby-header">At this location — ${clusterImages.length} photos</div>
+    <div id="nearby-list">
+      ${clusterImages.map(ci => `
+        <div class="nearby-item${ci.id === img.id ? ' active' : ''}" onclick="selectImage(${JSON.stringify(ci).replace(/"/g, '&quot;')}, null)">
+          <div class="nearby-thumb">
+            <iframe src="${toEmbedUrl(ci.url)}" loading="lazy"></iframe>
+          </div>
+          <div class="nearby-info">
+            <div class="nearby-name">${esc(ci.name)}</div>
+            <div class="nearby-sub">${esc(ci.date) || ''}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : `
+    <div id="nearby-header">Nearby images</div>
+    <div id="nearby-list">
+      ${getNearby(img).map(ni => `
+        <div class="nearby-item" onclick="selectImageById(${ni.id})">
+          <div class="nearby-thumb">
+            <iframe src="${toEmbedUrl(ni.url)}" loading="lazy"></iframe>
+          </div>
+          <div class="nearby-info">
+            <div class="nearby-name">${esc(ni.name)}</div>
+            <div class="nearby-sub">${esc(ni.folder) || ''}</div>
+          </div>
+        </div>`).join('')}
+    </div>`}
+  `;
+}
+
+function selectImageById(id) {
+  const img = allImages.find(i => i.id === id);
+  if (img) selectImage(img, null);
+}
+
+// ── NEARBY ────────────────────────────────────────────────────────────
+function getNearby(img, n = 8) {
+  if (!img.hasGps) return [];
+  return filteredImages
+    .filter(i => i.id !== img.id && i.hasGps)
+    .map(i => ({ ...i, dist: Math.hypot(i.lat - img.lat, i.lng - img.lng) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, n);
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────
+function toEmbedUrl(url) {
+  if (!url) return '';
+  const m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  return url;
+}
+
+function esc(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove();
+  });
+  showToast('Copied!');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+</script>
+</body>
+</html>
