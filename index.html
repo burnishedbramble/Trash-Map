@@ -505,82 +505,28 @@ let markers = [];
 let selectedId = null;
 let map = null;
 
-  // ── AUTO‑LOAD CSV FROM GOOGLE SHEETS ─────────────────────────────────
+ // ── AUTO‑LOAD CSV FROM GOOGLE SHEETS ─────────────────────────────────
 async function loadFromCSVUrl() {
   const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vShdSxffVjqBHMF-__Cw-AmqLGenzJ9W2UlrAF1z4Ktoun0jMVheMkEh-HMWtmDkBr4Qq9_p97ota3P/pub?output=csv";
 
+  showToast("Loading CSV from sheet…");  // 👈 see if this ever fires
+
   try {
     const resp = await fetch(csvUrl);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+
+    showToast("CSV downloaded, parsing…");
     const text = await resp.text();
+
     if (!text.trim()) throw new Error("Empty CSV");
+    console.log("CSV text sample:", text.slice(0, 200));  // inspect format
 
-    loadCSVFromText(text); // we’ll define this next
+    loadCSVFromText(text);
   } catch (err) {
-    showToast("Failed to load CSV: " + err.message);
-    console.error(err);
+    const msg = "CSV load failed: " + err.message;
+    showToast(msg);
+    console.error(msg, err);
   }
-}
-
-// Reuse your CSV‑parsing logic on a string
-function loadCSVFromText(text) {
-  const rows = parseCSV(text);
-  if (rows.length < 2) return;
-
-  const headers = rows[0].map(h => h.toLowerCase().trim());
-  const col = (names) => {
-    for (const n of names) {
-      const i = headers.findIndex(h => h.includes(n));
-      if (i >= 0) return i;
-    }
-    return -1;
-  };
-
-  const cName     = col(['file name', 'name', 'title']);
-  const cUrl      = col(['file url', 'url', 'link']);
-  const cDate     = col(['date']);
-  const cType     = col(['file type', 'type']);
-  const cFolder   = col(['subfolder', 'folder', 'location']);
-  const cPath     = col(['full path', 'path']);
-  const cLat      = col(['latitude', 'lat']);
-  const cLng      = col(['longitude', 'lng', 'lon']);
-
-  allImages = rows.slice(1).map((r, i) => {
-    const latRaw = cLat >= 0 ? r[cLat] : '';
-    const lngRaw = cLng >= 0 ? r[cLng] : '';
-    const lat = parseFloat(latRaw);
-    const lng = parseFloat(lngRaw);
-    const hasGps = !isNaN(lat) && !isNaN(lng) && latRaw !== 'none' && latRaw !== '';
-    return {
-      id: i,
-      name:     cName   >= 0 ? r[cName]   : 'Untitled',
-      url:      cUrl    >= 0 ? r[cUrl]     : '',
-      date:     cDate   >= 0 ? r[cDate]    : '',
-      type:     cType   >= 0 ? r[cType]    : '',
-      folder:   cFolder >= 0 ? r[cFolder]  : '',
-      path:     cPath   >= 0 ? r[cPath]    : '',
-      lat: hasGps ? lat : null,
-      lng: hasGps ? lng : null,
-      hasGps,
-    };
-  }).filter(img => img.url);
-
-  // Populate folder filter
-  const folders = [...new Set(allImages.map(i => i.folder).filter(Boolean))].sort();
-  const sel = document.getElementById('folder-filter');
-  sel.innerHTML = '<option value="">All folders</option>';
-  folders.forEach(f => {
-    const o = document.createElement('option');
-    o.value = f; o.textContent = f;
-    sel.appendChild(o);
-  });
-
-  const gpsCount = allImages.filter(i => i.hasGps).length;
-  document.getElementById('topbar-meta').textContent =
-    `${allImages.length} files · ${gpsCount} with GPS`;
-
-  // NO CSV panel open; just apply filters
-  applyFilters();
 }
 
 
@@ -594,9 +540,8 @@ function initMap() {
 }
 initMap();
  
-  initMap();
-loadFromCSVUrl();  // auto‑load from your live CSV
-
+initMap();
+loadFromCSVUrl();
 
 // ── CSV PANEL ─────────────────────────────────────────────────────────
 function toggleCsvPanel() {
