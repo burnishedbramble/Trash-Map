@@ -733,7 +733,8 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 1800);
 }
-  // ── PARSE CSV ─────────────────────────────────────────────────────────
+  
+// ── PARSE CSV ─────────────────────────────────────────────────────────
 function parseCSV(text) {
   const rows = [];
   const lines = text.split(/\r?\n/).filter(l => l.trim());
@@ -751,6 +752,7 @@ function parseCSV(text) {
   }
   return rows;
 }
+  
 </script>
 </body>
 </html>
