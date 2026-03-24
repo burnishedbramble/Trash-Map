@@ -733,6 +733,24 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 1800);
 }
+  // ── PARSE CSV ─────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = [];
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  for (const line of lines) {
+    const row = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { row.push(cur.trim()); cur = ''; }
+      else { cur += c; }
+    }
+    row.push(cur.trim());
+    rows.push(row);
+  }
+  return rows;
+}
 </script>
 </body>
 </html>
