@@ -61,63 +61,8 @@
     }
     .topbar-sep { flex: 1; }
 
-    /* CSV paste toggle */
-    #paste-toggle {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.65rem;
-      background: transparent;
-      border: 1px solid #444;
-      color: #aaa;
-      padding: 0.35rem 0.75rem;
-      border-radius: var(--radius);
-      cursor: pointer;
-      letter-spacing: 0.05em;
-      transition: all 0.15s;
-      white-space: nowrap;
-    }
-    #paste-toggle:hover { border-color: #aaa; color: #fff; }
-
-    /* ── CSV PANEL ── */
-    #csv-panel {
-      background: #111;
-      border-bottom: 1px solid #333;
-      padding: 0.75rem 1.25rem;
-      display: none;
-      gap: 0.75rem;
-      align-items: flex-start;
-    }
-    #csv-panel.open { display: flex; }
-    #csv-input {
-      flex: 1;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: var(--radius);
-      color: #e0e0e0;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.65rem;
-      padding: 0.6rem 0.75rem;
-      min-height: 80px;
-      resize: vertical;
-      outline: none;
-      line-height: 1.5;
-    }
-    #csv-input:focus { border-color: var(--accent); }
-    #csv-input::placeholder { color: #555; }
-    #load-csv-btn {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: var(--radius);
-      padding: 0.5rem 1rem;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 0.7rem;
-      font-weight: 500;
-      cursor: pointer;
-      white-space: nowrap;
-      letter-spacing: 0.03em;
-    }
-    #load-csv-btn:hover { opacity: 0.85; }
-
+   
+  
     /* ── FILTER BAR ── */
     #filterbar {
       height: 40px;
@@ -454,17 +399,66 @@
 </head>
 <body>
 
-<div id="topbar">
-  <h1>🚮 Waste Photo Map</h1>
-  <span id="topbar-meta">No data loaded</span>
-  <div class="topbar-sep"></div>
-  <button id="paste-toggle" onclick="toggleCsvPanel()">Paste CSV ↓</button>
-</div>
+// ── CSV LOAD / PARSE (from text only) ─────────────────────────────────
+function loadCSVFromText(text) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) return;
 
-<div id="csv-panel">
-  <textarea id="csv-input" placeholder="Paste your CSV here (File Name, File URL, Date Created, File Type, Subfolder, Full Path, Latitude, Longitude)…"></textarea>
-  <button id="load-csv-btn" onclick="loadCSV()">Load →</button>
-</div>
+  const headers = rows[0].map(h => h.toLowerCase().trim());
+  const col = (names) => {
+    for (const n of names) {
+      const i = headers.findIndex(h => h.includes(n));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const cName     = col(['file name', 'name', 'title']);
+  const cUrl      = col(['file url', 'url', 'link']);
+  const cDate     = col(['date']);
+  const cType     = col(['file type', 'type']);
+  const cFolder   = col(['subfolder', 'folder', 'location']);
+  const cPath     = col(['full path', 'path']);
+  const cLat      = col(['latitude', 'lat']);
+  const cLng      = col(['longitude', 'lng', 'lon']);
+
+  allImages = rows.slice(1).map((r, i) => {
+    const latRaw = cLat >= 0 ? r[cLat] : '';
+    const lngRaw = cLng >= 0 ? r[cLng] : '';
+    const lat = parseFloat(latRaw);
+    const lng = parseFloat(lngRaw);
+    const hasGps = !isNaN(lat) && !isNaN(lng) && latRaw !== 'none' && latRaw !== '';
+    return {
+      id: i,
+      name:     cName   >= 0 ? r[cName]   : 'Untitled',
+      url:      cUrl    >= 0 ? r[cUrl]     : '',
+      date:     cDate   >= 0 ? r[cDate]    : '',
+      type:     cType   >= 0 ? r[cType]    : '',
+      folder:   cFolder >= 0 ? r[cFolder]  : '',
+      path:     cPath   >= 0 ? r[cPath]    : '',
+      lat: hasGps ? lat : null,
+      lng: hasGps ? lng : null,
+      hasGps,
+    };
+  }).filter(img => img.url);
+
+  // Populate folder filter
+  const folders = [...new Set(allImages.map(i => i.folder).filter(Boolean))].sort();
+  const sel = document.getElementById('folder-filter');
+  sel.innerHTML = '<option value="">All folders</option>';
+  folders.forEach(f => {
+    const o = document.createElement('option');
+    o.value = f; o.textContent = f;
+    sel.appendChild(o);
+  });
+
+  const gpsCount = allImages.filter(i => i.hasGps).length;
+  document.getElementById('topbar-meta').textContent =
+    `${allImages.length} files · ${gpsCount} with GPS`;
+
+  applyFilters();
+}
+
 
 <div id="filterbar">
   <label>Folder</label>
@@ -496,6 +490,47 @@
 </div>
 
 <div id="toast"></div>
+// ── STATE ────────────────────────────────────────────────────────────
+let allImages = [];
+let filteredImages = [];
+let markers = [];
+let selectedId = null;
+let map = null;
+
+// ── AUTO‑LOAD CSV FROM GOOGLE SHEETS ─────────────────────────────────
+async function loadFromCSVUrl() {
+  const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vShdSxffVjqBHMF-__Cw-AmqLGenzJ9W2UlrAF1z4Ktoun0jMVheMkEh-HMWtmDkBr4Qq9_p97ota3P/pub?output=csv";
+
+  showToast("Loading CSV from sheet…");
+
+  try {
+    const resp = await fetch(csvUrl);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+
+    showToast("CSV downloaded, parsing…");
+    const text = await resp.text();
+
+    if (!text.trim()) throw new Error("Empty CSV");
+    console.log("CSV text sample:", text.slice(0, 200));
+
+    loadCSVFromText(text);
+  } catch (err) {
+    const msg = "CSV load failed: " + err.message;
+    showToast(msg);
+    console.error(msg, err);
+  }
+}
+
+// ── MAP INIT ─────────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([40.72, -73.97], 12);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO',
+    maxZoom: 19
+  }).addTo(map);
+}
+initMap();
+loadFromCSVUrl();  // only one map, no paste UI
 
 <script>
 // ── STATE ────────────────────────────────────────────────────────────
@@ -530,27 +565,6 @@ async function loadFromCSVUrl() {
 }
 
 
-// ── MAP INIT ─────────────────────────────────────────────────────────
-function initMap() {
-  map = L.map('map', { zoomControl: true }).setView([40.72, -73.97], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '© OpenStreetMap © CARTO',
-    maxZoom: 19
-  }).addTo(map);
-}
-initMap();
- 
-initMap();
-loadFromCSVUrl();
-
-// ── CSV PANEL ─────────────────────────────────────────────────────────
-function toggleCsvPanel() {
-  const panel = document.getElementById('csv-panel');
-  panel.classList.toggle('open');
-  document.getElementById('paste-toggle').textContent =
-    panel.classList.contains('open') ? 'Close ✕' : 'Paste CSV ↓';
-}
-
 // ── CSV PARSE ─────────────────────────────────────────────────────────
 function parseCSV(text) {
   const rows = [];
@@ -570,9 +584,6 @@ function parseCSV(text) {
   return rows;
 }
 
-function loadCSV() {
-  const text = document.getElementById('csv-input').value.trim();
-  if (!text) return;
 
   const rows = parseCSV(text);
   if (rows.length < 2) return;
