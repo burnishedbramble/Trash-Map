@@ -782,7 +782,7 @@ let map = null;
 // ── AUTO‑LOAD CSV FROM GOOGLE SHEETS ─────────────────────────────────
 async function loadFromCSVUrl() {
   // Swapped to the working published path with the explicit CSV output parameter
-  const baseCsvUrl = "https://google.com";
+  const baseCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vShdSxffVjqBHMF-__Cw-AmqLGenzJ9W2UlrAF1z4Ktoun0jMVheMkEh-HMWtmDkBr4Qq9_p97ota3P/pub?gid=1PLuz1exYlBzxTTK7IQN-EOkOrCrSRpXTHhz7I2VeGrU&single=true&output=csv";
 
   // Cache-busting parameter keeps the data fresh
   const csvUrl = `${baseCsvUrl}&cacheBust=${Date.now()}`;
