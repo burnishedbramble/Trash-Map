@@ -887,7 +887,7 @@ function loadCSVFromText(text) {
 // ── MAP INIT ─────────────────────────────────────────────────────────
 function initMap() {
   map = L.map('map', { zoomControl: true }).setView([40.72, -73.97], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_342s_1_e78a2eb8e70776ec787b1e80', {
     attribution: '© OpenStreetMap © CARTO',
     maxZoom: 19
   }).addTo(map);
