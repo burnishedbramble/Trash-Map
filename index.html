@@ -781,7 +781,9 @@ let map = null;
 
 // ── AUTO‑LOAD CSV FROM GOOGLE SHEETS ─────────────────────────────────
 async function loadFromCSVUrl() {
-  const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vShdSxffVjqBHMF-__Cw-AmqLGenzJ9W2UlrAF1z4Ktoun0jMVheMkEh-HMWtmDkBr4Qq9_p97ota3P/pub?output=csv";
+  const baseCsvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vShdSxffVjqBHMF-__Cw-AmqLGenzJ9W2UlrAF1z4Ktoun0jMVheMkEh-HMWtmDkBr4Qq9_p97ota3P/pub?gid=1PLuz1exYlBzxTTK7IQN-EOkOrCrSRpXTHhz7I2VeGrU&single=true&output=csv";
+
+  const csvUrl = `${baseCsvUrl}&cacheBust=${Date.now()}`;
 
   showToast("Loading CSV from 'Image Database Testing...if this looks out of date, ask Parker to update!");
 
@@ -1073,19 +1075,41 @@ function showToast(msg) {
 // ── PARSE CSV ─────────────────────────────────────────────────────────
 function parseCSV(text) {
   const rows = [];
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  for (const line of lines) {
-    const row = [];
-    let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"') { inQ = !inQ; }
-      else if (c === ',' && !inQ) { row.push(cur.trim()); cur = ''; }
-      else { cur += c; }
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        field += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push(field.trim());
+      field = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && next === '\n') i++;
+      row.push(field.trim());
+
+      if (row.some(value => value !== '')) rows.push(row);
+
+      row = [];
+      field = '';
+    } else {
+      field += char;
     }
-    row.push(cur.trim());
-    rows.push(row);
   }
+
+  // Handle final row if the CSV does not end with a line break.
+  row.push(field.trim());
+  if (row.some(value => value !== '')) rows.push(row);
+
   return rows;
 }
 
@@ -1171,10 +1195,13 @@ function renderGrid() {
     const tilesHtml = items.map(({ img, idx }) => {
       const isImage = !img.type || img.type === 'image';
       const tileContent = isImage
-        ? `<img src="${toThumbnailUrl(img.url)}" alt="${esc(img.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\'masonry-tile\\'><div class=\\'tile-icon\\'>🖼️</div><div class=\\'tile-name\\'>${esc(img.name)}</div></div>'">`
-        : `<div class="masonry-tile"><div class="tile-icon">🎥</div><div class="tile-name">${esc(img.name)}</div></div>`;
-
-      return `<div class="masonry-item" onclick="openLightbox(${idx})" title="${esc(img.name)}">
+  ? `<img src="${toThumbnailUrl(img.url)}" alt="${esc(img.name)}" loading="lazy"
+       onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+     <div class="masonry-tile" style="display:none">
+       <div class="tile-icon">🖼️</div>
+       <div class="tile-name">${esc(img.name)}</div>
+     </div>`
+  : `<div class="masonry-tile"><div class="tile-icon">🎥</div><div class="tile-name">${esc(img.name)}</div></div>`;      return `<div class="masonry-item" onclick="openLightbox(${idx})" title="${esc(img.name)}">
         ${tileContent}
         <div class="item-overlay"><span class="item-name">${esc(img.name)}</span></div>
       </div>`;
