@@ -787,7 +787,7 @@ async function loadFromCSVUrl() {
   // Cache-busting parameter keeps the data fresh
   const csvUrl = `${baseCsvUrl}&cacheBust=${Date.now()}`;
 
-  showToast("Loading CSV from 'Image Database Testing...if this looks out of date, ask Parker to update!");
+  showToast("Loading CSV — if this looks out of date, ask Parker to update it!");
   
   try {
     const resp = await fetch(csvUrl, {
@@ -817,6 +817,12 @@ async function loadFromCSVUrl() {
 }
 
 // ── CSV LOAD / PARSE (from text only) ─────────────────────────────────
+function normalizeType(rawType) {
+  const t = String(rawType || '').toLowerCase();
+  if (t.includes('video') || t.includes('mp4') || t.includes('mov') || t.includes('avi')) return 'video';
+  return 'image';
+}
+
 function loadCSVFromText(text) {
   const rows = parseCSV(text);
   if (rows.length < 2) return;
@@ -850,7 +856,7 @@ function loadCSVFromText(text) {
       name:     cName   >= 0 ? r[cName]   : 'Untitled',
       url:      cUrl    >= 0 ? r[cUrl]     : '',
       date:     cDate   >= 0 ? r[cDate]    : '',
-      type:     cType   >= 0 ? r[cType]    : '',
+      type:     normalizeType(cType >= 0 ? r[cType] : ''),
       folder:   cFolder >= 0 ? r[cFolder]  : '',
       path:     cPath   >= 0 ? r[cPath]    : '',
       lat: hasGps ? lat : null,
@@ -881,7 +887,7 @@ function loadCSVFromText(text) {
 // ── MAP INIT ─────────────────────────────────────────────────────────
 function initMap() {
   map = L.map('map', { zoomControl: true }).setView([40.72, -73.97], 12);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_342s_1_e78a2eb8e70776ec787b1e80', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     attribution: '© OpenStreetMap © CARTO',
     maxZoom: 19
   }).addTo(map);
@@ -1015,7 +1021,7 @@ function selectImage(img, clusterImages) {
     <div id="nearby-header">At this location — ${clusterImages.length} photos</div>
     <div id="nearby-list">
       ${clusterImages.map(ci => `
-        <div class="nearby-item${ci.id === img.id ? ' active' : ''}" onclick="selectImage(${JSON.stringify(ci).replace(/"/g, '&quot;')}, null)">
+        <div class="nearby-item${ci.id === img.id ? ' active' : ''}" onclick="selectImageById(${ci.id})">
           <div class="nearby-thumb">
             <iframe src="${toEmbedUrl(ci.url)}" loading="lazy"></iframe>
           </div>
@@ -1205,7 +1211,7 @@ function renderGrid() {
       : '';
 
     const tilesHtml = items.map(({ img, idx }) => {
-      const isImage = !img.type || img.type === 'image';
+      const isImage = img.type === 'image';
       const tileContent = isImage
   ? `<img src="${toThumbnailUrl(img.url)}" alt="${esc(img.name)}" loading="lazy"
        onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
